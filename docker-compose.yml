@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-portl}
+      POSTGRES_USER: ${POSTGRES_USER:-portl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-portl}
+    volumes:
+      - portl_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-portl} -d ${POSTGRES_DB:-portl}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    image: ${PORTL_IMAGE:-ghcr.io/h0wl3r/portl:latest}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-portl}:${POSTGRES_PASSWORD:-portl}@db:5432/${POSTGRES_DB:-portl}
+      PORTL_AUTH_USERNAME: ${PORTL_AUTH_USERNAME:-admin}
+      PORTL_AUTH_PASSWORD: ${PORTL_AUTH_PASSWORD:?Set PORTL_AUTH_PASSWORD in .env before starting}
+      PORTL_AUTH_PASSWORD_HASH: ${PORTL_AUTH_PASSWORD_HASH:-}
+      PORTL_SECRET_KEY: ${PORTL_SECRET_KEY:?Set PORTL_SECRET_KEY in .env before starting}
+      PORTL_DATA_ENCRYPTION_KEY: ${PORTL_DATA_ENCRYPTION_KEY:?Set PORTL_DATA_ENCRYPTION_KEY in .env before starting}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-67108864}
+      MAX_REMOTE_READ_BYTES: ${MAX_REMOTE_READ_BYTES:-16777216}
+      SSH_KEEPALIVE_SECONDS: ${SSH_KEEPALIVE_SECONDS:-15}
+      CONNECTION_HEALTH_CHECK_SECONDS: ${CONNECTION_HEALTH_CHECK_SECONDS:-10}
+      SOCKETIO_ASYNC_MODE: threading
+      FLASK_DEBUG: "false"
+    ports:
+      - "${PORTL_PORT:-5000}:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  portl_db:

@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Portl Wiki</title>
+    <meta name="description" content="Portl installation, commands, configuration, updates, and troubleshooting for controlling remote operations from one browser-based platform.">
+    <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+    <header class="site-header">
+        <nav class="nav" aria-label="Primary navigation">
+            <a class="brand" href="index.html">
+                <img src="assets/portal_logo.png" alt="">
+                <img class="brand-wordmark" src="assets/portl_text_white.png" alt="Portl">
+            </a>
+            <div class="nav-links">
+                <a href="index.html">Home</a>
+                <a href="#install">Install</a>
+                <a href="#commands">Commands</a>
+                <a href="#troubleshooting">Troubleshooting</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="wiki-layout">
+        <aside class="wiki-sidebar" aria-label="Wiki sections">
+            <a href="#overview">Overview</a>
+            <a href="#operations">Core Operations</a>
+            <a href="#requirements">Requirements</a>
+            <a href="#install">Install</a>
+            <a href="#first-run">First Run</a>
+            <a href="#commands">Commands</a>
+            <a href="#configuration">Configuration</a>
+            <a href="#updates">Updates</a>
+            <a href="#data">Data And Backups</a>
+            <a href="#security">Security</a>
+            <a href="#troubleshooting">Troubleshooting</a>
+            <a href="#screenshots">Screenshots</a>
+        </aside>
+
+        <article class="wiki-content">
+            <section class="doc-section" id="overview">
+                <p class="eyebrow">Portl Wiki</p>
+                <h1>Install And Operate Portl</h1>
+                <p>
+                    Portl centralises remote operations in one browser-based platform.
+                    Deploy SSH keys domain-wide, run commands across multiple hosts,
+                    browse remote files, open interactive shells, and manage proxy
+                    routes from the same controlled workspace.
+                </p>
+            </section>
+
+            <section class="doc-section" id="operations">
+                <h2>Core Operations</h2>
+                <ul class="list">
+                    <li>Run one command across multiple selected hosts.</li>
+                    <li>Distribute SSH keys domain-wide with a one-click workflow.</li>
+                    <li>Open live browser shell sessions for direct host work.</li>
+                    <li>Browse and manage remote files without leaving the platform.</li>
+                    <li>Start, stop, and reuse SOCKS/HTTP proxy profiles.</li>
+                </ul>
+            </section>
+
+            <section class="doc-section" id="requirements">
+                <h2>Requirements</h2>
+                <ul class="list">
+                    <li>Docker with Docker Compose v2.</li>
+                    <li>Python 3 for the launcher.</li>
+                    <li>Access to <code>ghcr.io/h0wl3r/portl:latest</code>.</li>
+                </ul>
+            </section>
+
+            <section class="doc-section" id="install">
+                <h2>Install</h2>
+                <p>Linux/macOS:</p>
+                <pre class="code-block"><code>curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start</code></pre>
+                <p>Windows PowerShell:</p>
+                <pre class="code-block"><code>iwr https://raw.githubusercontent.com/H0wl3r/portl/main/install.ps1 -UseB | iex; portl start</code></pre>
+                <p>
+                    The install scripts download <code>portl.py</code>, <code>docker-compose.yml</code>,
+                    and a small <code>portl</code> command wrapper. They do not install Docker,
+                    modify system packages, remove files, or clone the application source.
+                </p>
+            </section>
+
+            <section class="doc-section" id="first-run">
+                <h2>First Run</h2>
+                <p>
+                    <code>portl.py</code> creates <code>.env</code> with generated secrets if the file does not
+                    already exist. It prints the first admin login after creating that file.
+                </p>
+                <pre class="code-block"><code>Initial Portl login:
+  Username: admin
+  Password: generated-per-install-password</code></pre>
+                <p>
+                    Keep <code>.env</code> secure. It contains the install's admin password, session
+                    secret, PostgreSQL password, and data encryption key.
+                </p>
+            </section>
+
+            <section class="doc-section" id="commands">
+                <h2>Commands</h2>
+                <pre class="code-block"><code>portl doctor    # Check Docker, Compose, .env, and port readiness
+portl start     # Pull the official image and start Portl
+portl stop      # Stop and remove the Compose containers
+portl restart   # Restart the existing containers
+portl update    # Pull the latest image and restart
+portl status    # Show Compose container status
+portl logs      # Follow recent app logs</code></pre>
+            </section>
+
+            <section class="doc-section" id="configuration">
+                <h2>Configuration</h2>
+                <pre class="code-block"><code>PORTL_IMAGE=ghcr.io/h0wl3r/portl:latest
+PORTL_PORT=5000
+PORTL_AUTH_USERNAME=admin
+PORTL_AUTH_PASSWORD=generated-password
+PORTL_SECRET_KEY=generated-secret
+PORTL_DATA_ENCRYPTION_KEY=generated-encryption-key
+POSTGRES_PASSWORD=generated-postgres-password
+SESSION_COOKIE_SECURE=false</code></pre>
+                <p>
+                    For HTTPS deployments, set <code>SESSION_COOKIE_SECURE=true</code>. Keep
+                    <code>PORTL_DATA_ENCRYPTION_KEY</code> stable after first launch.
+                </p>
+            </section>
+
+            <section class="doc-section" id="updates">
+                <h2>Updates</h2>
+                <pre class="code-block"><code>portl update</code></pre>
+                <p>
+                    The update command pulls <code>ghcr.io/h0wl3r/portl:latest</code> and restarts
+                    the Compose stack. Release installs do not build from source.
+                </p>
+            </section>
+
+            <section class="doc-section" id="data">
+                <h2>Data And Backups</h2>
+                <p>
+                    PostgreSQL data is stored in the Docker volume <code>portl_db</code>. Back up
+                    this volume before moving hosts or replacing a deployment. Keep <code>.env</code>
+                    with the backup because it contains the encryption key for saved secrets.
+                </p>
+            </section>
+
+            <section class="doc-section" id="security">
+                <h2>Security</h2>
+                <ul class="list">
+                    <li>Use HTTPS for network-exposed deployments.</li>
+                    <li>Keep <code>.env</code> private and out of Git.</li>
+                    <li>Admin users can manage users and operate the workspace.</li>
+                    <li>Operator users can operate hosts, shells, files, keys, and proxies.</li>
+                    <li>Viewer users have read-only access.</li>
+                    <li>SSH host key checking is intentionally disabled for the current private-network operating model.</li>
+                </ul>
+            </section>
+
+            <section class="doc-section" id="troubleshooting">
+                <h2>Troubleshooting</h2>
+                <p>Run checks:</p>
+                <pre class="code-block"><code>portl doctor</code></pre>
+                <p>Show status:</p>
+                <pre class="code-block"><code>portl status</code></pre>
+                <p>Follow logs:</p>
+                <pre class="code-block"><code>portl logs</code></pre>
+                <p>If the configured port is already in use, set another port in <code>.env</code>:</p>
+                <pre class="code-block"><code>PORTL_PORT=5001</code></pre>
+            </section>
+
+            <section class="doc-section" id="screenshots">
+                <h2>Screenshots</h2>
+                <p>
+                    These captures show the main Portl workflows: dashboard visibility,
+                    host operations, interactive shell access, remote file management,
+                    and SSH key distribution.
+                </p>
+                <div class="screenshot-window screenshot-carousel wiki-screenshot-window" aria-label="Portl product screenshots">
+                    <figure class="screenshot-slide active">
+                        <img src="docs/screenshots/dashboard.png" alt="Portl dashboard showing host status, activity, and quick workflows">
+                        <figcaption><strong>Operations Dashboard</strong></figcaption>
+                    </figure>
+                    <figure class="screenshot-slide">
+                        <img src="docs/screenshots/hosts.png" alt="Portl hosts table showing connected SSH targets">
+                        <figcaption><strong>Host Control</strong></figcaption>
+                    </figure>
+                    <figure class="screenshot-slide">
+                        <img src="docs/screenshots/shell.png" alt="Portl interactive shell session">
+                        <figcaption><strong>Interactive Shell</strong></figcaption>
+                    </figure>
+                    <figure class="screenshot-slide">
+                        <img src="docs/screenshots/browser.png" alt="Portl remote file browser">
+                        <figcaption><strong>Remote File Browser</strong></figcaption>
+                    </figure>
+                    <figure class="screenshot-slide">
+                        <img src="docs/screenshots/key_manage.png" alt="Portl SSH key management screen">
+                        <figcaption><strong>Key Management</strong></figcaption>
+                    </figure>
+                </div>
+            </section>
+        </article>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <img class="footer-wordmark" src="assets/portl_text_white.png" alt="Portl">
+            <a href="index.html">Back to home</a>
+        </div>
+    </footer>
+    <script src="assets/site.js"></script>
+</body>
+</html>
