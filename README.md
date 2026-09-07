@@ -140,7 +140,7 @@ portl doctor    # Check Docker, Compose, .env, and port readiness
 portl start     # Pull the configured image and start Portl
 portl stop      # Stop and remove the Compose containers
 portl restart   # Restart the existing containers
-portl update    # Pull the latest configured image and restart
+portl update    # Update launcher, Compose, and image, then restart
 portl status    # Show Compose container status
 portl logs      # Follow recent app logs
 ```
@@ -174,6 +174,16 @@ For installed release deployments:
 ```bash
 portl update
 ```
+
+The update refreshes the installed launcher and Compose file, pulls the configured
+image, and waits for the restarted app to become healthy. Existing `.env` settings
+and database volumes are preserved. Default installations use public `main`;
+pinned image versions use the corresponding release tag.
+
+Use `portl update --image-only` to preserve local launcher and Compose files.
+Source checkouts and custom image or Compose configurations update containers only.
+Older installed launchers need one installer rerun after this feature is published;
+after that, `portl update` also keeps the launcher current.
 
 ## Installer Overrides
 

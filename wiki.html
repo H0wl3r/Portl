@@ -107,7 +107,7 @@
 portl start     # Pull the official image and start Portl
 portl stop      # Stop and remove the Compose containers
 portl restart   # Restart the existing containers
-portl update    # Pull the latest image and restart
+portl update    # Update launcher, Compose, and image, then restart
 portl status    # Show Compose container status
 portl logs      # Follow recent app logs</code></pre>
             </section>
@@ -132,8 +132,15 @@ SESSION_COOKIE_SECURE=false</code></pre>
                 <h2>Updates</h2>
                 <pre class="code-block"><code>portl update</code></pre>
                 <p>
-                    The update command pulls <code>ghcr.io/h0wl3r/portl:latest</code> and restarts
-                    the Compose stack. Release installs do not build from source.
+                    The update command refreshes the launcher and Compose file, pulls the configured
+                    image, and waits for the restarted app to become healthy. Existing <code>.env</code>
+                    settings and database volumes are preserved. Default installations use public
+                    <code>main</code>; pinned images use their matching release tag.
+                </p>
+                <p>
+                    Use <code>portl update --image-only</code> to keep local launcher and Compose files.
+                    Source checkouts and custom image or Compose configurations update containers only.
+                    Older launchers need one installer rerun to gain self-update support.
                 </p>
             </section>
 

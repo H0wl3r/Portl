@@ -9,6 +9,7 @@ in dev.py.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import platform
@@ -18,6 +19,10 @@ import socket
 import string
 import subprocess
 import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -47,7 +52,8 @@ def main() -> int:
     subparsers.add_parser("stop", help="Stop Portl containers.").set_defaults(func=stop)
     subparsers.add_parser("restart", help="Restart Portl containers.").set_defaults(func=restart)
 
-    update_parser = subparsers.add_parser("update", help="Pull the latest image, then restart Portl.")
+    update_parser = subparsers.add_parser("update", help="Update launcher, Compose, and Docker image, then restart Portl.")
+    update_parser.add_argument("--image-only", action="store_true", help="Keep local launcher and Compose files unchanged.")
     update_parser.set_defaults(func=update)
 
     logs_parser = subparsers.add_parser("logs", help="Follow app logs.")
@@ -99,11 +105,107 @@ def restart(args: argparse.Namespace) -> None:
 
 def update(args: argparse.Namespace) -> None:
     run_checks(args, docker_required=True, include_port_check=True)
-    compose(args, "pull", "db", "app")
-    compose(args, "up", "-d", "--no-build")
+    checkout = any((parent / ".git").exists() for parent in (ROOT, *ROOT.parents))
+    custom_compose = args.compose_file.resolve() != (ROOT / "docker-compose.yml").resolve()
+    image = os.environ.get("PORTL_IMAGE") or env_value(read_env(args.env_file), "PORTL_IMAGE", DEFAULT_PORTL_IMAGE)
+    if args.image_only or checkout or custom_compose or not image.startswith("ghcr.io/h0wl3r/portl:"):
+        if not args.image_only:
+            print("Keeping local launcher/Compose files for this source checkout or custom configuration.")
+        compose(args, "pull", "db", "app")
+        compose(args, "up", "-d", "--no-build", "--wait", "--wait-timeout", "120")
+    else:
+        update_installation(args, image)
     env = read_env(args.env_file)
     port = args.port or int(env_value(env, "PORTL_PORT", "5000"))
     print(f"{APP_NAME} updated and running at http://localhost:{port}")
+
+
+def download_update(url: str) -> bytes:
+    request = urllib.request.Request(url, headers={
+        "User-Agent": "Portl-launcher", "Cache-Control": "no-cache",
+        "Accept": "application/vnd.github+json" if url.startswith("https://api.github.com/") else "*/*",
+    })
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = response.read(2 * 1024 * 1024 + 1)
+        if not data or len(data) > 2 * 1024 * 1024:
+            raise CliError("Update download was empty or unexpectedly large.")
+        return data
+    except (OSError, urllib.error.URLError) as exc:
+        raise CliError(f"Could not download update from {url}: {exc}") from exc
+
+
+def update_snapshot(image: str) -> str:
+    tag = image.rsplit(":", 1)[1]
+    ref = "main" if tag == "latest" else (tag if tag.startswith("v") else "v" + tag)
+    # Resolve once, then fetch both files from that immutable commit.
+    from urllib.parse import quote
+    url = f"https://api.github.com/repos/H0wl3r/portl/commits/{quote(ref, safe='')}?check={time.time_ns()}"
+    try:
+        sha = json.loads(download_update(url))["sha"]
+        if not isinstance(sha, str) or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+            raise ValueError("invalid commit")
+        return sha
+    except (ValueError, KeyError, TypeError) as exc:
+        raise CliError("GitHub did not return a valid update commit.") from exc
+
+
+def update_installation(args: argparse.Namespace, image: str) -> None:
+    lock = ROOT / ".portl-update.lock"
+    try:
+        lock_fd = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError as exc:
+        raise CliError(f"Another update may be running. If none is running, remove the stale lock: {lock}") from exc
+    except OSError as exc:
+        raise CliError(f"Cannot write to the installation directory: {exc}") from exc
+    os.close(lock_fd)
+    try:
+        sha = update_snapshot(image)
+        print(f"Downloading launcher and Compose from public Portl commit {sha[:12]}.")
+        with tempfile.TemporaryDirectory(prefix=".portl-update-", dir=ROOT) as temporary:
+            stage = Path(temporary)
+            for name in ("portl.py", "docker-compose.yml"):
+                (stage / name).write_bytes(download_update(
+                    f"https://raw.githubusercontent.com/H0wl3r/portl/{sha}/{name}"))
+            try:
+                tree = ast.parse((stage / "portl.py").read_bytes(), filename="portl.py")
+                compile(tree, "portl.py", "exec")
+                if not any(isinstance(node, ast.FunctionDef) and node.name == "main" for node in tree.body):
+                    raise ValueError("missing launcher main function")
+            except (SyntaxError, ValueError) as exc:
+                raise CliError(f"Downloaded launcher is invalid: {exc}") from exc
+            candidate_compose = ["docker", "compose", "--project-directory", str(ROOT),
+                                 "--env-file", str(args.env_file), "-f", str(stage / "docker-compose.yml")]
+            run([*candidate_compose, "config", "--quiet"])
+            # Download images before replacing files or touching running containers.
+            run([*candidate_compose, "pull", "db", "app"])
+            originals = {}
+            for name in ("portl.py", "docker-compose.yml"):
+                target = ROOT / name
+                if target.is_symlink():
+                    raise CliError(f"Refusing to overwrite a symlink: {target}. Use update --image-only.")
+                originals[name] = (target.read_bytes(), target.stat().st_mode & 0o777)
+            replaced = []
+            try:
+                for name, (_, mode) in originals.items():
+                    (stage / name).chmod(mode)
+                    os.replace(stage / name, ROOT / name)
+                    replaced.append(name)
+                compose(args, "up", "-d", "--no-build", "--wait", "--wait-timeout", "120")
+            except (OSError, CliError) as exc:
+                for name in replaced:
+                    content, mode = originals[name]
+                    backup = stage / (name + ".restore")
+                    backup.write_bytes(content)
+                    backup.chmod(mode)
+                    os.replace(backup, ROOT / name)
+                raise CliError("Update failed; previous launcher and Compose files were restored. "
+                               f"If container startup was attempted, check portl logs. {exc}") from exc
+        print("Launcher and Compose updated. Existing .env settings were preserved.")
+    except OSError as exc:
+        raise CliError(f"Could not update installation files: {exc}") from exc
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 def logs(args: argparse.Namespace) -> None:
