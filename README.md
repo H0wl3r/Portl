@@ -46,7 +46,7 @@ Additional screenshots are available in `docs/screenshots/`.
 Linux (installs into `/srv/portl`; sudo is requested automatically when needed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && /usr/local/bin/portl start
+curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start
 ```
 
 macOS (installs into `~/.local/share/portl`):

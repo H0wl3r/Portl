@@ -110,8 +110,8 @@ run_privileged install -m 755 "$PORTL_STAGE/portl" "$PORTL_BIN_DIR/portl"
 run_privileged install -m 600 "$PORTL_STAGE/.portl-install.json" "$PORTL_INSTALL_DIR/.portl-install.json"
 
 echo "INFO | Portl installed."
-echo "INFO | Run: $PORTL_BIN_DIR/portl doctor"
-echo "INFO | Start: $PORTL_BIN_DIR/portl start"
+echo "INFO | Run: portl doctor"
+echo "INFO | Start: portl start"
 echo "INFO | If portl is not found, add $PORTL_BIN_DIR to PATH."
 PORTL_EXISTING_COMMAND="$(command -v portl 2>/dev/null || true)"
 if [ -n "$PORTL_EXISTING_COMMAND" ] && [ "$PORTL_EXISTING_COMMAND" != "$PORTL_BIN_DIR/portl" ]; then
