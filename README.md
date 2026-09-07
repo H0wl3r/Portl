@@ -46,7 +46,7 @@ Additional screenshots are available in `docs/screenshots/`.
 Linux (installs into `/srv/portl`; sudo is requested automatically when needed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start
+curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && /usr/local/bin/portl start
 ```
 
 macOS (installs into `~/.local/share/portl`):
@@ -212,6 +212,38 @@ $env:PORTL_INSTALL_DIR="$env:USERPROFILE\portl"
 $env:PORTL_BIN_DIR="$env:USERPROFILE\bin"
 .\install.ps1
 ```
+
+## Uninstall
+
+Preview cleanup on Windows or Linux:
+
+```text
+portl uninstall --dry-run
+```
+
+Remove Portl, including its saved database, hosts, users, SSH keys, and secrets:
+
+```text
+portl uninstall
+```
+
+The command lists what it will remove and requires you to type `DELETE PORTL`.
+Use `portl uninstall --yes` only for an unattended removal. Docker must be running
+and accessible. The Linux system wrapper requests sudo when necessary.
+
+Cleanup includes containers, volumes and networks for the known `portl`,
+`portl-dev`, and `portl-ci` Compose projects, projects identified by Portl app
+containers, and the legacy `portl_ssh_manager_db` volume. It removes identifiable
+Portl image tags and the PostgreSQL 16 Alpine image when unused by other containers.
+Shared volumes or networks block uninstall; images used by other containers stay.
+It does not prune Docker globally or delete images from GHCR.
+
+Recognized installation files and wrappers are removed from the current install
+and default locations for the current user (including old Linux wrappers).
+Installers record custom command directories for cleanup. Unknown files, Git
+checkouts, other users' installations, and unrecognized Docker resources remain.
+Windows removes its dedicated user PATH entry and finishes deleting the command
+wrapper after the command exits. Restart the terminal after uninstalling.
 
 ## Data And Backups
 

@@ -66,7 +66,7 @@ fi
 umask 077
 PORTL_STAGE="$(mktemp -d)"
 cleanup() {
-  rm -f "$PORTL_STAGE/portl.py" "$PORTL_STAGE/docker-compose.yml" "$PORTL_STAGE/portl"
+  rm -f "$PORTL_STAGE/portl.py" "$PORTL_STAGE/docker-compose.yml" "$PORTL_STAGE/portl" "$PORTL_STAGE/.portl-install.json"
   rmdir "$PORTL_STAGE"
 }
 trap cleanup EXIT
@@ -94,6 +94,12 @@ if owner_uid == "0":
 fi''')
 print('exec python3 "$PORTL_LAUNCHER" "$@"')
 PY
+python3 - "$PORTL_INSTALL_DIR" "$PORTL_BIN_DIR" > "$PORTL_STAGE/.portl-install.json" <<'PY'
+import json
+import os
+import sys
+print(json.dumps(dict(zip(("install_dir", "bin_dir"), map(os.path.abspath, sys.argv[1:])))))
+PY
 
 # Keep existing settings; only replace the downloaded distribution files.
 run_privileged sh -c 'umask 077; mkdir -p "$1"' sh "$PORTL_INSTALL_DIR"
@@ -101,8 +107,13 @@ run_privileged sh -c 'umask 022; mkdir -p "$1"' sh "$PORTL_BIN_DIR"
 run_privileged install -m 755 "$PORTL_STAGE/portl.py" "$PORTL_INSTALL_DIR/portl.py"
 run_privileged install -m 600 "$PORTL_STAGE/docker-compose.yml" "$PORTL_INSTALL_DIR/docker-compose.yml"
 run_privileged install -m 755 "$PORTL_STAGE/portl" "$PORTL_BIN_DIR/portl"
+run_privileged install -m 600 "$PORTL_STAGE/.portl-install.json" "$PORTL_INSTALL_DIR/.portl-install.json"
 
 echo "INFO | Portl installed."
 echo "INFO | Run: $PORTL_BIN_DIR/portl doctor"
 echo "INFO | Start: $PORTL_BIN_DIR/portl start"
 echo "INFO | If portl is not found, add $PORTL_BIN_DIR to PATH."
+PORTL_EXISTING_COMMAND="$(command -v portl 2>/dev/null || true)"
+if [ -n "$PORTL_EXISTING_COMMAND" ] && [ "$PORTL_EXISTING_COMMAND" != "$PORTL_BIN_DIR/portl" ]; then
+  echo "INFO | Another portl command exists at $PORTL_EXISTING_COMMAND. Use $PORTL_BIN_DIR/portl to run this installation."
+fi

@@ -9,9 +9,11 @@ in dev.py.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
 import secrets
+import shlex
 import socket
 import string
 import subprocess
@@ -55,6 +57,10 @@ def main() -> int:
 
     subparsers.add_parser("status", help="Show container status.").set_defaults(func=status)
     subparsers.add_parser("doctor", help="Run startup checks without starting containers.").set_defaults(func=doctor)
+    uninstall_parser = subparsers.add_parser("uninstall", help="Remove Portl containers, data, images, and installed files.")
+    uninstall_parser.add_argument("--dry-run", action="store_true", help="Preview removal without changing anything.")
+    uninstall_parser.add_argument("--yes", action="store_true", help="Confirm permanent removal without prompting.")
+    uninstall_parser.set_defaults(func=uninstall)
 
     args = parser.parse_args()
     args.compose_file = Path(args.compose_file).resolve()
@@ -113,6 +119,276 @@ def status(args: argparse.Namespace) -> None:
 def doctor(args: argparse.Namespace) -> None:
     run_checks(args, docker_required=True, include_port_check=True)
     print("All checks passed.")
+
+
+PORTL_PROJECTS = {"portl", "portl-dev", "portl-ci"}
+PORTL_IMAGE_REPOS = {"ghcr.io/h0wl3r/portl", "portl-app", "portl-candidate"}
+
+
+def docker_json(*args: str) -> list[dict]:
+    result = subprocess.run(["docker", *args], capture_output=True, text=True, check=False)
+    if result.returncode:
+        raise CliError(f"Docker inventory failed: {result.stderr.strip()}")
+    return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+
+
+def docker_inventory(kind: str) -> list[dict]:
+    command = ["docker", kind, "ls", "-q"]
+    if kind == "container":
+        command.append("-a")
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode:
+        raise CliError(f"Could not list Docker {kind}s: {result.stderr.strip()}")
+    ids = list(dict.fromkeys(result.stdout.split()))
+    objects = []
+    for identifier in ids:
+        objects.extend(docker_json(kind, "inspect", "--format", "{{json .}}", identifier))
+    return objects
+
+
+def portl_image(reference: str) -> bool:
+    return reference.split("@", 1)[0].split(":", 1)[0] in PORTL_IMAGE_REPOS
+
+
+def plan_docker_uninstall(containers: list[dict], volumes: list[dict], networks: list[dict], images: list[dict]) -> dict:
+    projects = set(PORTL_PROJECTS)
+    for container in containers:
+        if portl_image(container["Config"].get("Image", "")):
+            project = (container["Config"].get("Labels") or {}).get("com.docker.compose.project")
+            if project:
+                projects.add(project)
+    selected = [c for c in containers if portl_image(c["Config"].get("Image", "")) or
+                (c["Config"].get("Labels") or {}).get("com.docker.compose.project") in projects]
+    selected_ids = {c["Id"] for c in selected}
+    others = [c for c in containers if c["Id"] not in selected_ids]
+    mounted = {m["Name"] for c in selected for m in c.get("Mounts", []) if m["Type"] == "volume"}
+    selected_volumes = [v["Name"] for v in volumes if v["Name"] in mounted or
+                        (v.get("Labels") or {}).get("com.docker.compose.project") in projects or
+                        v["Name"] in {"portl_portl_db", "portl-dev_portl_db", "portl-ci_portl_db", "portl_ssh_manager_db"}]
+    shared = {m["Name"] for c in others for m in c.get("Mounts", []) if m["Type"] == "volume"}
+    if shared.intersection(selected_volumes):
+        raise CliError("Uninstall stopped: another Docker project uses these Portl volumes: " +
+                       ", ".join(sorted(shared.intersection(selected_volumes))))
+    selected_networks = [n["Id"] for n in networks if
+                         (n.get("Labels") or {}).get("com.docker.compose.project") in projects]
+    for network in networks:
+        if network["Id"] in selected_networks and set(network.get("Containers", {})) - selected_ids:
+            raise CliError(f"Uninstall stopped: network {network['Name']} is shared with other containers.")
+    used_images = {c["Image"] for c in others}
+    app_image_ids = {c["Image"] for c in selected if portl_image(c["Config"].get("Image", ""))}
+    remove_images, retained_images = [], []
+    for image in images:
+        tags = image.get("RepoTags") or []
+        owned_tags = [tag for tag in tags if portl_image(tag)]
+        # PostgreSQL is shared software: remove its tag only when no other container uses it.
+        if "postgres:16-alpine" in tags and (selected or selected_volumes):
+            owned_tags.append("postgres:16-alpine")
+        targets = owned_tags or ([image["Id"]] if not tags and image["Id"] in app_image_ids else [])
+        if image["Id"] in used_images:
+            retained_images.extend(targets)
+        else:
+            remove_images.extend(targets)
+    return {"containers": sorted(selected_ids), "volumes": sorted(selected_volumes),
+            "networks": sorted(selected_networks), "images": sorted(set(remove_images)),
+            "names": {**{c["Id"]: c.get("Name", c["Id"]).lstrip('/') for c in selected},
+                      **{n["Id"]: n["Name"] for n in networks}},
+            "retained_images": sorted(set(retained_images))}
+
+
+def installation_paths() -> tuple[list[Path], list[Path]]:
+    home = Path.home()
+    if os.name != "nt" and os.environ.get("SUDO_USER"):
+        import pwd
+        home = Path(pwd.getpwnam(os.environ["SUDO_USER"]).pw_dir)
+    roots = {ROOT, home / ".local/share/portl"}
+    bins = {ROOT / "bin", home / ".local/bin"}
+    if os.name == "nt":
+        if os.environ.get("LOCALAPPDATA"):
+            roots.add(Path(os.environ["LOCALAPPDATA"]) / "Portl")
+    else:
+        roots.add(Path("/srv/portl"))
+        bins.add(Path("/usr/local/bin"))
+    bins.update(Path(p) for p in os.environ.get("PATH", "").split(os.pathsep) if p)
+    for root in list(roots):
+        marker = root / ".portl-install.json"
+        if marker.is_file():
+            try:
+                record = json.loads(marker.read_text(encoding="utf-8-sig"))
+                if Path(record["install_dir"]).resolve() == root.resolve():
+                    bins.add(Path(record["bin_dir"]))
+            except (ValueError, KeyError, OSError):
+                pass
+    return sorted(roots), sorted(bins)
+
+
+def plan_file_uninstall(roots: list[Path], bins: list[Path]) -> tuple[list[Path], list[Path]]:
+    files, directories = set(), set()
+    valid_roots = []
+    for root in roots:
+        root = root.absolute()
+        if root.is_symlink() or any((parent / ".git").exists() for parent in (root, *root.parents)):
+            continue
+        launcher = root / "portl.py"
+        if launcher.is_file() and not launcher.is_symlink():
+            content = launcher.read_text(encoding="utf-8")
+            if 'APP_NAME = "Portl"' not in content or "DEFAULT_PORTL_IMAGE" not in content:
+                continue
+            valid_roots.append(root)
+            directories.add(root)
+            for name in ("portl.py", "docker-compose.yml", ".env", ".portl-install.json"):
+                path = root / name
+                if path.is_file() or path.is_symlink():
+                    files.add(path)
+            cache = root / "__pycache__"
+            if cache.is_dir() and not cache.is_symlink():
+                files.update(cache.glob("portl.*.pyc"))
+                directories.add(cache)
+    # Old wrappers may point to a default installation that no longer exists.
+    wrapper_roots = [*valid_roots, *(r.absolute() for r in roots if not r.exists())]
+
+    def points_to_portl(content: str) -> bool:
+        return any(value in content for r in wrapper_roots for value in (
+            str(r / "portl.py"), shlex.quote(str(r / "portl.py")), str(r / "portl.py").replace('%', '%%')))
+
+    for directory in {*bins, *(r / "bin" for r in valid_roots)}:
+        if any((parent / ".git").exists() for parent in (directory, *directory.parents)):
+            continue
+        for name in ("portl", "portl.cmd"):
+            wrapper = directory.absolute() / name
+            if wrapper.is_symlink():
+                target = wrapper.resolve()
+                owned = target.is_file() and (any(target == r / "portl.py" for r in valid_roots) or
+                        (target.name in {"portl", "portl.cmd"} and points_to_portl(target.read_text(errors="replace"))))
+            elif wrapper.is_file():
+                content = wrapper.read_text(errors="replace")
+                owned = points_to_portl(content)
+            else:
+                owned = False
+            if owned:
+                files.add(wrapper)
+                if directory in {r / "bin" for r in valid_roots}:
+                    directories.add(directory)
+    return sorted(files), sorted(directories, key=lambda p: len(p.parts), reverse=True)
+
+
+def remove_windows_path(directories: list[Path]) -> None:
+    if os.name != "nt":
+        return
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as key:
+        try:
+            value, value_type = winreg.QueryValueEx(key, "Path")
+        except FileNotFoundError:
+            return
+        targets = {os.path.normcase(str(p.resolve())) for p in directories}
+        entries = [entry for entry in value.split(";") if os.path.normcase(os.path.abspath(
+            os.path.expandvars(entry.strip().strip('"')))) not in targets]
+        winreg.SetValueEx(key, "Path", 0, value_type, ";".join(entries))
+    import ctypes
+    result = ctypes.c_size_t()
+    ctypes.windll.user32.SendMessageTimeoutW(0xffff, 0x001A, 0, "Environment", 2, 2000, ctypes.byref(result))
+
+
+def finish_windows_uninstall(wrappers: list[Path], directories: list[Path]) -> None:
+    """Let cmd.exe finish reading its wrapper before unlinking that exact file."""
+    helper = r'''
+import ctypes, json, sys, time
+from pathlib import Path
+parent, wrappers, directories = json.loads(sys.argv[1])
+kernel = ctypes.windll.kernel32
+kernel.OpenProcess.restype = ctypes.c_void_p
+handle = kernel.OpenProcess(0x00100000, False, parent)
+if handle:
+    kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel.WaitForSingleObject(handle, 30000)
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CloseHandle(handle)
+time.sleep(1)
+for name in wrappers:
+    path = Path(name)
+    if not path.is_absolute() or path.name != 'portl.cmd':
+        continue
+    for attempt in range(20):
+        try:
+            path.unlink(missing_ok=True)
+            break
+        except PermissionError:
+            time.sleep(0.25)
+for name in directories:
+    path = Path(name)
+    if path.is_absolute() and path != Path(path.anchor):
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+'''
+    payload = json.dumps([os.getpid(), [str(p.absolute()) for p in wrappers],
+                          [str(p.absolute()) for p in directories]])
+    subprocess.Popen([sys.executable, "-c", helper, payload], cwd=os.environ.get("TEMP", str(Path.home())),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     creationflags=subprocess.CREATE_NO_WINDOW, close_fds=True)
+
+
+def uninstall(args: argparse.Namespace) -> None:
+    ensure_docker()
+    plan = plan_docker_uninstall(*(docker_inventory(kind) for kind in ("container", "volume", "network", "image")))
+    roots, bins = installation_paths()
+    files, directories = plan_file_uninstall(roots, bins)
+    print("Portl uninstall permanently deletes its saved hosts, users, keys, database, and local settings.")
+    for kind in ("containers", "volumes", "networks", "images"):
+        print(f"{kind.capitalize()} to remove:")
+        for name in plan[kind]:
+            print(f"  {plan['names'].get(name, name)}")
+    print("Installation files to remove:")
+    for path in files:
+        print(f"  {path}")
+    for image in plan["retained_images"]:
+        print(f"Keeping shared image used by another container: {image}")
+    print("Git checkouts and unknown files are preserved. Empty installation directories are removed.")
+    if args.dry_run:
+        return
+    if not args.yes:
+        try:
+            confirmed = input("Type DELETE PORTL to continue: ") == "DELETE PORTL"
+        except EOFError:
+            confirmed = False
+        if not confirmed:
+            print("Uninstall cancelled. Nothing was removed.")
+            return
+    # Stop on any Docker failure before removing settings needed for recovery.
+    for kind, command in (("containers", ["container", "rm", "-f"]),
+                          ("volumes", ["volume", "rm"]), ("networks", ["network", "rm"]),
+                          ("images", ["image", "rm"])):
+        for identifier in plan[kind]:
+            run(["docker", *command, identifier])
+    errors = []
+    wrapper_dirs = []
+    deferred_wrappers = []
+    for path in files:
+        try:
+            if os.name == "nt" and path.name == "portl.cmd":
+                deferred_wrappers.append(path)
+            else:
+                path.unlink(missing_ok=True)
+            if path.name == "portl.cmd" and path.parent in directories and all(p in files for p in path.parent.iterdir()):
+                wrapper_dirs.append(path.parent)
+        except OSError as exc:
+            errors.append(f"{path}: {exc}")
+    remove_windows_path(wrapper_dirs)
+    if deferred_wrappers:
+        finish_windows_uninstall(deferred_wrappers, directories)
+        print("Windows command wrapper cleanup will finish just after this command exits.")
+    for directory in directories:
+        if deferred_wrappers:
+            continue
+        try:
+            directory.rmdir()  # Only empty directories; never recursively delete a source tree.
+        except OSError:
+            if directory.exists():
+                print(f"Kept nonempty or inaccessible directory: {directory}")
+    if errors:
+        raise CliError("Some installation files could not be removed:\n" + "\n".join(errors))
+    print("Portl uninstall complete. Restart your terminal to refresh command lookup and PATH.")
 
 
 def run_checks(

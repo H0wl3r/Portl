@@ -67,7 +67,7 @@
                         </button>
                     </div>
                 </div>
-                <pre class="code-block"><code id="installer-command">curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start</code></pre>
+                <pre class="code-block"><code id="installer-command">curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && /usr/local/bin/portl start</code></pre>
             </div>
         </section>
 
@@ -162,7 +162,7 @@
     </footer>
     <script>
         const installerCommands = {
-            linux: 'curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start',
+            linux: 'curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && /usr/local/bin/portl start',
             windows: 'iwr https://raw.githubusercontent.com/H0wl3r/portl/main/install.ps1 -UseB | iex; portl start'
         };
 
