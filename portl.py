@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Portl launcher CLI.
+"""Production Portl launcher CLI.
 
-This script is intentionally dependency-free and manages the released Docker
-image through Docker Compose.
+This script is intentionally dependency-free and only manages the released
+Docker image through Docker Compose. Local builds and development commands live
+in dev.py.
 """
 
 from __future__ import annotations
@@ -163,7 +164,7 @@ def ensure_release_image_configured(env_file: Path) -> None:
     env = read_env(env_file)
     image = env_value(env, "PORTL_IMAGE", DEFAULT_PORTL_IMAGE)
     if not image or image == "portl-app:local":
-        raise CliError(f"Set PORTL_IMAGE in {env_file} to the official image.")
+        raise CliError(f"Set PORTL_IMAGE in {env_file} to the official image. Use `python dev.py start` for local builds.")
 
 
 def ensure_docker() -> None:
