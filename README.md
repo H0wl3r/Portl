@@ -43,7 +43,13 @@ Additional screenshots are available in `docs/screenshots/`.
 
 ## Install
 
-Linux/macOS:
+Linux (installs into `/srv/portl`; run Portl commands with `sudo`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sudo sh && sudo /usr/local/bin/portl start
+```
+
+macOS (installs into `~/.local/share/portl`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start
@@ -177,7 +183,7 @@ using a private release channel.
 Linux/macOS:
 
 ```bash
-PORTL_LAUNCHER_URL=https://example.com/portl.py \
+sudo env PORTL_LAUNCHER_URL=https://example.com/portl.py \
 PORTL_COMPOSE_URL=https://example.com/docker-compose.yml \
 sh install.sh
 ```

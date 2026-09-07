@@ -178,7 +178,11 @@ def ensure_docker() -> None:
     try:
         run(["docker", "info"], quiet=True)
     except CliError as exc:
-        raise CliError("Docker is installed, but the Docker daemon is not running.") from exc
+        raise CliError(
+            "Cannot access the Docker daemon. Check that Docker is running and your user "
+            "has permission to connect. On Linux, try running Portl with sudo. "
+            f"Docker check: {exc}"
+        ) from exc
 
 
 def ensure_port_available(args: argparse.Namespace, port: int) -> None:

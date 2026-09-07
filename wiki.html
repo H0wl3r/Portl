@@ -73,7 +73,9 @@
 
             <section class="doc-section" id="install">
                 <h2>Install</h2>
-                <p>Linux/macOS:</p>
+                <p>Linux: installs into /srv/portl; run Portl commands with sudo.</p>
+                <pre class="code-block"><code>curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sudo sh && sudo /usr/local/bin/portl start</code></pre>
+                <p>macOS:</p>
                 <pre class="code-block"><code>curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start</code></pre>
                 <p>Windows PowerShell:</p>
                 <pre class="code-block"><code>iwr https://raw.githubusercontent.com/H0wl3r/portl/main/install.ps1 -UseB | iex; portl start</code></pre>
