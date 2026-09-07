@@ -43,10 +43,10 @@ Additional screenshots are available in `docs/screenshots/`.
 
 ## Install
 
-Linux (installs into `/srv/portl`; run Portl commands with `sudo`):
+Linux (installs into `/srv/portl`; sudo is requested automatically when needed):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sudo sh && sudo /usr/local/bin/portl start
+curl -fsSL https://raw.githubusercontent.com/H0wl3r/portl/main/install.sh | sh && portl start
 ```
 
 macOS (installs into `~/.local/share/portl`):
@@ -177,13 +177,18 @@ portl update
 
 ## Installer Overrides
 
+On Linux, PORTL_SUDO_COMMAND defaults to `sudo` when not running as root.
+Root shells run directly. Set `PORTL_SUDO_COMMAND="sudo -E"` to preserve the
+environment, or set it to an empty string for a user-owned custom installation.
+The system-installed command wrapper also requests elevation when needed.
+
 Use overrides when testing another branch, hosting the launcher elsewhere, or
 using a private release channel.
 
 Linux/macOS:
 
 ```bash
-sudo env PORTL_LAUNCHER_URL=https://example.com/portl.py \
+PORTL_LAUNCHER_URL=https://example.com/portl.py \
 PORTL_COMPOSE_URL=https://example.com/docker-compose.yml \
 sh install.sh
 ```
@@ -199,7 +204,7 @@ $env:PORTL_COMPOSE_URL="https://example.com/docker-compose.yml"
 Custom install locations:
 
 ```bash
-PORTL_INSTALL_DIR="$HOME/portl" PORTL_BIN_DIR="$HOME/.local/bin" sh install.sh
+PORTL_SUDO_COMMAND="" PORTL_INSTALL_DIR="$HOME/portl" PORTL_BIN_DIR="$HOME/.local/bin" sh install.sh
 ```
 
 ```powershell
